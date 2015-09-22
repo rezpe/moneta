@@ -4,7 +4,7 @@ module Moneta
   module Adapters
     # Cassandra backend
     # @api public
-    # @author Potapov Sergey (aka Blake)
+    # @author Sebastien Perez Vasseur
     class Cassandra
       include Defaults
       include ExpiresSupport
@@ -13,44 +13,34 @@ module Moneta
 
       # @param [Hash] options
       # @option options [String] :keyspace ('moneta') Cassandra keyspace
-      # @option options [String] :column_family ('moneta') Cassandra column family
+      # @option options [String] :table ('moneta') Cassandra column family
       # @option options [String] :host ('127.0.0.1') Server host name
       # @option options [Integer] :port (9160) Server port
       # @option options [Integer] :expires Default expiration time
       # @option options [::Cassandra] :backend Use existing backend instance
       # @option options Other options passed to `Cassandra#new`
       def initialize(options = {})
-        self.default_expires = options.delete(:expires)
-        @cf = (options.delete(:column_family) || 'moneta').to_sym
+
+        self.default_expires = options[:expires]
+        @table = options[:table] || 'moneta'
         if options[:backend]
           @backend = options[:backend]
         else
-          keyspace = options.delete(:keyspace) || 'moneta'
-          options[:retries] ||= 3
-          options[:connect_timeout] ||= 10
-          options[:timeout] ||= 10
-          @backend = ::Cassandra.new('system',
-                                     "#{options[:host] || '127.0.0.1'}:#{options[:port] || 9160}",
-                                     options)
-          unless @backend.keyspaces.include?(keyspace)
-            cf_def = ::Cassandra::ColumnFamily.new(keyspace: keyspace, name: @cf.to_s)
-            ks_def = ::Cassandra::Keyspace.new(name: keyspace,
-                                               strategy_class: 'SimpleStrategy',
-                                               strategy_options: { 'replication_factor' => '1' },
-                                               replication_factor: 1,
-                                               cf_defs: [cf_def])
-            # Wait for keyspace to be created (issue #24)
-            10.times do
-              begin
-                @backend.add_keyspace(ks_def)
-              rescue Exception => ex
-                warn "Moneta::Adapters::Cassandra - #{ex.message}"
-              end
-              break if @backend.keyspaces.include?(keyspace)
-              sleep 0.1
-            end
+          @cluster  = Cassandra.cluster(hosts: options[:host] || '127.0.0.1',
+                                      port: options[:port] || 9160,
+                                      connect_timeout: options[:connect_timeout] || 10,
+                                      timeout: options[:timeout] || 10)
+
+          keyspace = options[:keyspace] || 'moneta'
+
+          unless @cluster.keyspace_exists?(keyspace)
+            @cluster.create_keyspace(keyspace)
+            session = cluster.connect(keyspace)
+            session.execute("CREATE TABLE #{@table} ( key ascii PRIMARY KEY, value text ) ")
           end
-          @backend.keyspace = keyspace
+
+          @backend = cluster.connect(keyspace)
+
         end
       end
 
