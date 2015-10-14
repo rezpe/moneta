@@ -33,59 +33,71 @@ module Moneta
 
           keyspace = options[:keyspace] || 'moneta'
 
+          #We check if the keyspace exists, if not, we create a new keyspace
           unless @cluster.keyspace_exists?(keyspace)
             @cluster.create_keyspace(keyspace)
             session = cluster.connect(keyspace)
             session.execute("CREATE TABLE #{@table} ( key ascii PRIMARY KEY, value text ) ")
           end
 
+          #Connection to the cluster
           @backend = cluster.connect(keyspace)
 
         end
       end
 
       # (see Proxy#key?)
+      #Check if the key is present in the table
       def key?(key, options = {})
-        if @backend.exists?(@cf, key)
-          load(key, options) if options.include?(:expires)
+        rows = @backend.execute("SELECT * FROM #{@table} WHERE key='#{key}' LIMIT 1")
+
+        if rows.first
           true
         else
           false
         end
+
       end
 
       # (see Proxy#load)
+      #Reads a value from the table
       def load(key, options = {})
-        if value = @backend.get(@cf, key)
-          expires = expires_value(options, nil)
-          @backend.insert(@cf, key, {'value' => value['value'] }, ttl: expires || nil) if expires != nil
-          value['value']
+        rows = @backend.execute("SELECT * FROM #{@table} WHERE key='#{key}' LIMIT 1")
+
+        if rows.first
+          rows.first['value']
+        else
+          nil
         end
       end
 
       # (see Proxy#store)
+      #Stores a value
       def store(key, value, options = {})
-        @backend.insert(@cf, key, {'value' => value}, ttl: expires_value(options) || nil)
+        @backend.execute("INSERT INTO #{@table} (key, value) VALUES ('#{key}','#{value}')")
         value
       end
 
       # (see Proxy#delete)
+      #deletes a value
       def delete(key, options = {})
         if value = load(key, options)
-          @backend.remove(@cf, key)
+          @backend.execute("DELETE FROM #{@table} where key='#{key}'")
           value
         end
       end
 
       # (see Proxy#clear)
+      #Clears the table
       def clear(options = {})
-        @backend.clear_column_family!(@cf)
+        @backend.execute("TRUNCATE #{@table}")
         self
       end
 
       # (see Proxy#close)
+      #disconnection
       def close
-        @backend.disconnect!
+        @backend.close
         nil
       end
     end

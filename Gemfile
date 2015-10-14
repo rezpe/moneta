@@ -45,7 +45,7 @@ gem 'moped'
 gem 'sequel'
 gem 'dalli'
 gem 'riak-client'
-gem 'cassandra'
+gem 'cassandra-driver'
 gem 'tokyotyrant'
 #gem 'ruby-tokyotyrant', platforms: :ruby
 #gem 'hbaserb'
